@@ -1,0 +1,6 @@
+chorale_model*
+model_*
+data/*
+venv/*
+.vscode/*
+cod/__py_cache__*
