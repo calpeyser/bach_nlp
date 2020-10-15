@@ -11,7 +11,7 @@ import tensorflow as tf
 from tensorflow import keras 
 K = keras.backend
 
-LATENT_DIM = 256
+LATENT_DIM = 128
 
 def _build_model(constants):
     encoder_inputs = keras.Input(shape=(constants['MAX_SEQ_LEN'], constants['X_DIM']))
@@ -50,13 +50,13 @@ def train():
             batch_size=32,
             epochs=100,
             validation_split=0.05)
-    model.save('chorale_model_256')
+    model.save('chorale_model_128')
 
-def prediction_model():
+def predict():
     train_data, test_data, constants = feature_extractors.load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
-    model = keras.models.load_model('chorale_model_256')
+    model = keras.models.load_model('chorale_model_128')
     
     # Extract encoder from graph
     encoder_inputs = model.input[0]
