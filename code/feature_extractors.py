@@ -3,14 +3,17 @@ import os, pathlib
 import music21
 import numpy as np
 
-X_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/x.npy')).resolve()
-Y_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/y.npy')).resolve()
+X_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/x_onekey.npy')).resolve()
+Y_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/y_onekey.npy')).resolve()
 
 MAX_CHORALE_LENGTH = 391
 MAX_ANALYSIS_LENGTH = 229
 
-CHORALE_EMBEDDING_SIZE=75
+CHORALE_EMBEDDING_SIZE=79
 ANALYSIS_EMBEDDING_SIZE=33
+
+# Optional, if you want to view chorales
+music21.environment.set('musicxmlPath', '/usr/bin/musescore3')
 
 def _one_hot(index, depth):
     res = np.zeros(depth)
@@ -178,9 +181,9 @@ class ChoraleChord(object):
         def _encode_note(pitch, octave):
             assert (pitch == None) == (octave == None)
             if pitch == None:
-                return np.zeros(18)
+                return np.zeros(19)
             else:
-                return np.concatenate([_one_hot(pitch, 12), _one_hot(octave, 6)])
+                return np.concatenate([_one_hot(pitch, 12), _one_hot(octave, 7)])
         return np.concatenate([
             _encode_note(self.pitch1, self.octave1),
             _encode_note(self.pitch2, self.octave2),
@@ -203,19 +206,25 @@ class ChoraleChord(object):
             self._encode_beat(),
         ])
 
-def process_rna(number):
+def process_rna(number, transposition_interval=None):
     analysis_file = (pathlib.Path(__file__).parent / ('../data/analysis/riemenschneider%s.txt' % number)).resolve()
     rna = music21.converter.parse(analysis_file, format="romantext")
     chords = []
     for element in rna.recurse():
         if (type(element).__name__ == 'RomanNumeral'):
+            if (transposition_interval):
+                element.key = element.key.transpose(transposition_interval)
             chords.append(RNAChord(romantext_chord=element))
+    # for c in chords:
+    #     print(c)
     return chords
 
-def process_chorale(number):
+def process_chorale(number, transposition_interval=None):
     chorale_file = (pathlib.Path(__file__).parent / ('../data/chorales/riemenschneider%s.xml' % number)).resolve()
     chorale = music21.converter.parse(chorale_file)
-    #chorale.show()
+    if (transposition_interval):
+        chorale = chorale.transpose(transposition_interval)
+    # chorale.show()
     chordified = chorale.chordify()
     chords = []
     for element in chordified.recurse():
@@ -227,35 +236,36 @@ def create_dataset():
     x = []
     y = []
     for i in range(372)[1:]:
-        if i == 150: continue # Chorale 150 has five parts
-        print("Processing Chorale %s" % i)
-        if i < 10:
-            ind = "00%s" % i
-        elif i < 100:
-            ind = "0%s" % i
-        else:
-            ind = "%s" %i
-        encoded_chorale_chords = []
-        chorale_chords = process_chorale(ind)
-        for chord in chorale_chords:
-            enc = chord.encode()
-            encoded_chorale_chords.append(enc)
-        # Padding
-        for _ in range(MAX_CHORALE_LENGTH)[len(encoded_chorale_chords):]:
-            encoded_chorale_chords.append(-1. * np.ones(CHORALE_EMBEDDING_SIZE))
-        encoded_chorale_chords = np.stack(encoded_chorale_chords)
-        x.append(encoded_chorale_chords)
-        
-        encoded_rna_chords = [-1. * np.ones(ANALYSIS_EMBEDDING_SIZE)]
-        rna_chords = process_rna(ind)
-        for chord in rna_chords:
-            enc = chord.encode()
-            encoded_rna_chords.append(enc)
-        # Padding
-        for _ in range(MAX_ANALYSIS_LENGTH)[len(encoded_rna_chords):]:
-            encoded_rna_chords.append(-1. * np.ones(ANALYSIS_EMBEDDING_SIZE))
-        encoded_rna_chords = np.stack(encoded_rna_chords)
-        y.append(encoded_rna_chords)
+        for transposition_interval in [0]: #[-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]:
+            if i == 150: continue # Chorale 150 has five parts
+            print("Processing Chorale %s in transposition %s" % (i, str(transposition_interval)))
+            if i < 10:
+                ind = "00%s" % i
+            elif i < 100:
+                ind = "0%s" % i
+            else:
+                ind = "%s" %i
+            encoded_chorale_chords = []
+            chorale_chords = process_chorale(ind, transposition_interval=transposition_interval)
+            for chord in chorale_chords:
+                enc = chord.encode()
+                encoded_chorale_chords.append(enc)
+            # Padding
+            for _ in range(MAX_CHORALE_LENGTH)[len(encoded_chorale_chords):]:
+                encoded_chorale_chords.append(-1. * np.ones(CHORALE_EMBEDDING_SIZE))
+            encoded_chorale_chords = np.stack(encoded_chorale_chords)
+            x.append(encoded_chorale_chords)
+            
+            encoded_rna_chords = [-1. * np.ones(ANALYSIS_EMBEDDING_SIZE)]
+            rna_chords = process_rna(ind, transposition_interval=transposition_interval)
+            for chord in rna_chords:
+                enc = chord.encode()
+                encoded_rna_chords.append(enc)
+            # Padding
+            for _ in range(MAX_ANALYSIS_LENGTH)[len(encoded_rna_chords):]:
+                encoded_rna_chords.append(-1. * np.ones(ANALYSIS_EMBEDDING_SIZE))
+            encoded_rna_chords = np.stack(encoded_rna_chords)
+            y.append(encoded_rna_chords)
 
     x = np.stack(x)
     np.save(X_FILE, x)
@@ -287,5 +297,5 @@ def load_dataset():
         'Y_DIM': ANALYSIS_EMBEDDING_SIZE,
     }
 
-#create_dataset()
-load_dataset()
+
+create_dataset()
