@@ -3,8 +3,8 @@ import os, pathlib
 import music21
 import numpy as np
 
-X_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/x_onekey.npy')).resolve()
-Y_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/y_onekey.npy')).resolve()
+X_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/x.npy')).resolve()
+Y_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/y.npy')).resolve()
 
 MAX_CHORALE_LENGTH = 391
 MAX_ANALYSIS_LENGTH = 229
@@ -236,7 +236,7 @@ def create_dataset():
     x = []
     y = []
     for i in range(372)[1:]:
-        for transposition_interval in [0]: #[-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]:
+        for transposition_interval in [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]:
             if i == 150: continue # Chorale 150 has five parts
             print("Processing Chorale %s in transposition %s" % (i, str(transposition_interval)))
             if i < 10:
@@ -282,15 +282,17 @@ def load_dataset():
     print("Loaded y array of shape " + str(np.shape(y)))
     print("Computed y_target array of shape " + str(np.shape(y_target)))
 
-    x_train = x[:330]
-    y_train = y[:330]
-    y_target_train = y_target[:330]
-    x_test = x[331:]
-    y_test = y[331:]
-    y_target_test = y_target[331:]
+    split = int(len(x) * 9/10)
+    
+    x_train = x[:split]
+    y_train = y[:split]
+    y_target_train = y_target[:split]
+    x_test = x[split+1:]
+    y_test = y[split+1:]
+    y_target_test = y_target[split+1:]
 
     return (x_train, y_train, y_target_train), (x_test, y_test, y_target_test), {
-        'DATASET_SIZE': 370,
+        'DATASET_SIZE': len(x_train),
         'MAX_SEQ_LEN': MAX_CHORALE_LENGTH,
         'MASK_VALUE': -1,
         'X_DIM': CHORALE_EMBEDDING_SIZE,
@@ -298,4 +300,5 @@ def load_dataset():
     }
 
 
-create_dataset()
+#create_dataset()
+print(load_dataset())
