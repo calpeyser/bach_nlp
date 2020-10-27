@@ -1,7 +1,9 @@
-import os, pathlib
+import os, pathlib, sys
 
 import music21
 import numpy as np
+
+np.set_printoptions(threshold=sys.maxsize)
 
 X_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/x.npy')).resolve()
 Y_FILE = (pathlib.Path(__file__).parent / ('../data/preprocessed_data/y.npy')).resolve()
@@ -10,7 +12,7 @@ MAX_CHORALE_LENGTH = 391
 MAX_ANALYSIS_LENGTH = 229
 
 CHORALE_EMBEDDING_SIZE=79
-ANALYSIS_EMBEDDING_SIZE=33
+ANALYSIS_EMBEDDING_SIZE=34
 
 # Optional, if you want to view chorales
 music21.environment.set('musicxmlPath', '/usr/bin/musescore3')
@@ -22,7 +24,7 @@ def _one_hot(index, depth):
 
 class RNAChord(object):
 
-    def __init__(self, romantext_chord='', encoding=[]):
+    def __init__(self, romantext_chord='', encoding=[], is_terminal=False):
         assert not ((romantext_chord != '') and (encoding != []))
         if romantext_chord != '':
             self.key = romantext_chord.key
@@ -32,6 +34,7 @@ class RNAChord(object):
             self.measure = romantext_chord.measureNumber
             self.start_beat = romantext_chord.offset
             self.end_beat = romantext_chord.offset + romantext_chord.duration.quarterLength
+            self.is_terminal=is_terminal
         elif encoding != []:
             assert len(encoding == ANALYSIS_EMBEDDING_SIZE)
             self._decode_key(encoding[:13])
@@ -40,7 +43,6 @@ class RNAChord(object):
             self._decode_quality(encoding[25:30])
             self._decode_measure(encoding[30])
             self._decode_beat(encoding[31:33])
-
         else:
             raise Exception("RNAChord requires either romantext_chord or encoding")
 
@@ -133,6 +135,12 @@ class RNAChord(object):
         self.start_beat = np.round(encoding[0])
         self.end_beat = np.round(encoding[1])
 
+    def _encode_terminal(self):
+        if self.is_terminal:
+            return np.array([-1.0])
+        else:
+            return np.array([1.0])
+
     def encode(self):
         return np.concatenate([
             self._encode_key(),
@@ -140,7 +148,8 @@ class RNAChord(object):
             self._encode_inversion(),
             self._encode_quality(),
             self._encode_measure(),
-            self._encode_beat()
+            self._encode_beat(),
+            self._encode_terminal(),
         ])
 
 class ChoraleChord(object):
@@ -217,6 +226,8 @@ def process_rna(number, transposition_interval=None):
             chords.append(RNAChord(romantext_chord=element))
     # for c in chords:
     #     print(c)
+    # The last chorale should have the terminal bit set
+    chords[-1].is_terminal = True
     return chords
 
 def process_chorale(number, transposition_interval=None):
@@ -256,7 +267,7 @@ def create_dataset():
             encoded_chorale_chords = np.stack(encoded_chorale_chords)
             x.append(encoded_chorale_chords)
             
-            encoded_rna_chords = [-1. * np.ones(ANALYSIS_EMBEDDING_SIZE)]
+            encoded_rna_chords = []
             rna_chords = process_rna(ind, transposition_interval=transposition_interval)
             for chord in rna_chords:
                 enc = chord.encode()
@@ -276,7 +287,7 @@ def create_dataset():
 def load_dataset():
     x = np.load(X_FILE, allow_pickle=True)
     y = np.load(Y_FILE, allow_pickle=True)
-    y_target = np.roll(y, -1, axis=1)
+    y_target = np.roll(y, -5, axis=1)
 
     print("Loaded x array of shape " + str(np.shape(x)))
     print("Loaded y array of shape " + str(np.shape(y)))
@@ -301,4 +312,4 @@ def load_dataset():
 
 
 #create_dataset()
-print(load_dataset())
+#print(load_dataset())
