@@ -2,6 +2,7 @@ import os, pathlib
 
 import feature_extractors
 import scoring
+from thrush_attention import AttentionLayer
 
 import numpy as np
 import random
@@ -81,7 +82,7 @@ def create_losses(mask_value):
 
 # Builds the attention model for training.
 def _build_model(constants):
-    encoder_inputs = keras.Input(shape=(constants['MAX_SEQ_LEN'], constants['X_DIM']))
+    encoder_inputs = keras.Input(shape=(constants['MAX_CHORALE_LENGTH'], constants['X_DIM']))
 
     masking_layer = keras.layers.Masking(mask_value=constants['MASK_VALUE'])
     masked_inputs = masking_layer(encoder_inputs)
@@ -91,7 +92,7 @@ def _build_model(constants):
 
     encoder_states = [state_h, state_c]
 
-    decoder_inputs = keras.Input(shape=(constants['MAX_SEQ_LEN'], constants['Y_DIM']))
+    decoder_inputs = keras.Input(shape=(constants['MAX_ANALYSIS_LENGTH'], constants['Y_DIM']))
 
     decoder_lstm = keras.layers.LSTM(LATENT_DIM, return_sequences=True, return_state=True)
     decoder_dense = keras.layers.Dense(constants['Y_DIM'], activation=None)
@@ -99,8 +100,8 @@ def _build_model(constants):
     decoder_outputs, _, _ = decoder_lstm(decoder_inputs,
                                         initial_state=encoder_states)
     
-    attn = keras.layers.Attention()
-    attention_outputs = attn([decoder_outputs, encoder_outputs])
+    attn = AttentionLayer(name='thrush_attention')
+    attention_outputs, attention_energies = attn([encoder_outputs, decoder_outputs])
 
     dense_outputs = decoder_dense(keras.layers.concatenate([decoder_outputs, attention_outputs]))
     output_components = _convert_dense_to_output_components(dense_outputs)
@@ -141,8 +142,8 @@ def train():
             validation_split=0.05,
             shuffle=True,
             callbacks=[NBatchLogger()],
-            verbose=0)
-    model.save('attn_256_multitask')
+            verbose=1)
+    model.save('thrush_attn')
 
 def predict():
     train_data, test_data, constants = feature_extractors.load_dataset()
@@ -150,7 +151,11 @@ def predict():
     # To eval on the train set, specify "train_data" here
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
-    model = keras.models.load_model('attn_256_multitask', compile=False)
+    model = keras.models.load_model('thrush_attn',
+                                    custom_objects={
+                                        'AttentionLayer': AttentionLayer
+                                    },
+                                    compile=False)
 
     def _get_layers(layer_type):
       return [l for l in model.layers if layer_type in str(type(l))]
@@ -169,12 +174,11 @@ def predict():
     encoder_model = keras.Model(encoder_inputs, [encoder_states, encoder_outputs])
 
     # Extract decoder from graph
-    decoder_inputs = model.input[1]
-    decoder_state_input_h = keras.Input(shape=(LATENT_DIM,), name="input_3_1")
-    decoder_state_input_c = keras.Input(shape=(LATENT_DIM,), name="input_4_1")
-    encoder_output_input = keras.Input(shape=(constants['MAX_SEQ_LEN'], LATENT_DIM), name="encoder_output_input")
+    decoder_inputs = keras.Input(shape=(1, constants['Y_DIM']), name='rna_input_inference')
+    decoder_state_input_h = keras.Input(shape=(LATENT_DIM,), name="decoder_state_h_inference")
+    decoder_state_input_c = keras.Input(shape=(LATENT_DIM,), name="decoder_state_c_inference")
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
-
+    encoder_output_input = keras.Input(shape=(constants['MAX_CHORALE_LENGTH'], LATENT_DIM), name="encoder_output_input")
 
     decoder_lstm = _get_layers('LSTM')[1]
     decoder_attn = _get_layers('Attention')[0]
@@ -185,7 +189,8 @@ def predict():
         decoder_inputs, initial_state=decoder_states_inputs
     )
     decoder_states = [state_h_dec, state_c_dec]
-    attention_outputs = decoder_attn([decoder_outputs, encoder_output_input])
+    attention_outputs, attention_energies = decoder_attn([encoder_output_input, decoder_outputs])
+
     dense_outputs = decoder_dense(decoder_concat([decoder_outputs, attention_outputs]))
     output_components = _convert_dense_to_output_components(dense_outputs)
 
@@ -194,6 +199,7 @@ def predict():
     ins.append(encoder_output_input)
     outs = [output_components]
     outs.extend(decoder_states)
+    outs.append(attention_energies)
     decoder_model = keras.Model(ins, outs)
 
     # Retruns true when the "is_terminal" output is set to -1, meaning the RNA
@@ -203,15 +209,17 @@ def predict():
     
     # Decode a single chorale.
     def decode(input_seq):
-        states_value, encoder_outputs = encoder_model.predict(np.array([input_seq]))
+        states_value, encoder_output_values = encoder_model.predict(np.array([input_seq]))
         target_seq = np.ones((1, 1, constants['Y_DIM'])) * -5.
 
         result = []
-        for k in range(constants['MAX_SEQ_LEN']):
+        attn_energies = []
+        for k in range(constants['MAX_ANALYSIS_LENGTH']):
             ins = [target_seq]
             ins.extend(states_value)
-            ins.append(encoder_outputs)
-            output_components, h, c = decoder_model.predict(ins)
+            ins.append(encoder_output_values)
+            output_components, h, c, attn_energy = decoder_model.predict(ins)
+            attn_energies.append(attn_energy)
             output_tokens = np.concatenate([output_components[key] for key in COMPONENTS_IN_ORDER], axis=-1)
             result.append(output_tokens)
             if _terminate(output_tokens[0][0]):
@@ -220,7 +228,7 @@ def predict():
             target_seq = np.ones((1, 1, constants['Y_DIM'])) * output_tokens
             states_value = [h, c]
         print("Decoding did not terminate! Returning large RNA.")
-        return result
+        return result, attn_energies
 
     def cut_off_ground_truth(ground_truth):
         res = []
@@ -233,10 +241,15 @@ def predict():
 
     err_rates = []
     len_diffs = []
-    # Eval the first 10 chorales
-    for chorale_ind in range(len(encoder_input_data))[:10]:
-        print("Eval for chorale " + str(chorale_ind))
-        decoded = decode(encoder_input_data[chorale_ind])
+    attn_energy_matrixes = []
+    for chorale_ind in range(len(encoder_input_data))[:1]:
+        print("Eval for chorale " + str(chorale_ind))        
+        # c = encoder_input_data[chorale_ind]
+        # c = [i for i in c if i[-1] != -1]
+        # print(len(c))
+
+        decoded, atnn_energies = decode(encoder_input_data[chorale_ind])
+        attn_energy_matrixes.append(atnn_energies)
         decoded_rna_chords = [feature_extractors.RNAChord(encoding=decoded[i][0][0]) for i in range(len(decoded))]
 
         ground_truth = cut_off_ground_truth(decoder_target_data[chorale_ind])
@@ -255,11 +268,11 @@ def predict():
         # for c in decoded_rna_chords:
         #     print(c)
 
+
     print("Error rate: " + str(np.mean(err_rates)))
     print("Len diff: " + str(np.mean(len_diffs)))
-
-
+    return attn_energy_matrixes
 
 
 #train()
-predict()
+attns = predict()

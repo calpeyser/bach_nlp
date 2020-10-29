@@ -304,7 +304,8 @@ def load_dataset():
 
     return (x_train, y_train, y_target_train), (x_test, y_test, y_target_test), {
         'DATASET_SIZE': len(x_train),
-        'MAX_SEQ_LEN': MAX_CHORALE_LENGTH,
+        'MAX_CHORALE_LENGTH': MAX_CHORALE_LENGTH,
+        'MAX_ANALYSIS_LENGTH': MAX_ANALYSIS_LENGTH,
         'MASK_VALUE': -1,
         'X_DIM': CHORALE_EMBEDDING_SIZE,
         'Y_DIM': ANALYSIS_EMBEDDING_SIZE,
