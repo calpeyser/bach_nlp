@@ -58,6 +58,14 @@ def create_losses(mask_value):
 
   xentropy_fn = keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
   mse_fn = keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE)
+  # A special loss for is_terminal, which especially penalizes missing the terminal
+  # -1.0
+  def IsTerminalLoss(y_true, y_pred):
+    mse_loss = mse_fn(y_true, y_pred)
+    seq_len = tf.reduce_sum(tf.cast(tf.math.logical_not(K.all(K.equal(y_true, -1.0), axis=-1)), dtype=tf.float32)) 
+    res = tf.where(tf.squeeze(tf.equal(y_true, [-1.0])), mse_loss * seq_len/20, mse_loss)
+    return res
+  is_terminal_fn = IsTerminalLoss
 
   def _create_masked_loss(slice_fn, loss_fn):
     def _l(y_true, y_pred):
@@ -76,7 +84,7 @@ def create_losses(mask_value):
       'quality': _create_masked_loss(QUALITY_SLICE, xentropy_fn),
       'measure': _create_masked_loss(MEASURE_SLICE, mse_fn),
       'beat': _create_masked_loss(BEAT_SLICE, mse_fn),
-      'is_terminal': _create_masked_loss(IS_TERMINAL_SLICE, mse_fn),
+      'is_terminal': _create_masked_loss(IS_TERMINAL_SLICE, is_terminal_fn),
   }
   return LOSSES
 
@@ -134,10 +142,10 @@ def train():
     model = _build_model(constants)
 
     l = create_losses(constants['MASK_VALUE'])
-    o = keras.optimizers.Adam(learning_rate=0.001)
+    o = keras.optimizers.Adam(learning_rate=0.008)
     model.compile(optimizer=o, loss=l)
     model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
-            batch_size=64,
+            batch_size=256,
             epochs=1,
             validation_split=0.05,
             shuffle=True,
@@ -242,7 +250,9 @@ def predict():
     err_rates = []
     len_diffs = []
     attn_energy_matrixes = []
-    for chorale_ind in range(len(encoder_input_data))[:1]:
+    chorale_inds = list(range(len(encoder_input_data)))
+    random.shuffle(chorale_inds)
+    for chorale_ind in chorale_inds[:50]:
         print("Eval for chorale " + str(chorale_ind))        
         # c = encoder_input_data[chorale_ind]
         # c = [i for i in c if i[-1] != -1]
@@ -255,7 +265,7 @@ def predict():
         ground_truth = cut_off_ground_truth(decoder_target_data[chorale_ind])
         ground_truth_chords = [feature_extractors.RNAChord(encoding=ground_truth[i]) for i in range(len(ground_truth))]
 
-        errs = scoring.levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=scoring.EQUALITY_FNS['key_enharmonic'])
+        errs = scoring.levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=scoring.EQUALITY_FNS['key_enharmonic_and_parallel'], left_deletion_cost=0)
         print(len(ground_truth_chords) - len(decoded_rna_chords))
         len_diffs.append(len(ground_truth_chords) - len(decoded_rna_chords))
         err_rates.append(float(errs / len(ground_truth_chords)))
@@ -274,5 +284,5 @@ def predict():
     return attn_energy_matrixes
 
 
-#train()
+train()
 attns = predict()
