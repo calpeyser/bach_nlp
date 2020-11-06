@@ -1,36 +1,40 @@
 import tensorflow as tf
 import os
+from tensorflow.python import keras
 from tensorflow.python.keras.layers import Layer
 from tensorflow.python.keras import backend as K
 
 
-class AttentionLayer(Layer):
-    """
-    This class implements Bahdanau attention (https://arxiv.org/pdf/1409.0473.pdf).
-    There are three sets of weights introduced W_a, U_a, and V_a
-     """
+class AttentionCell(Layer):
 
-    def __init__(self, **kwargs):
-        super(AttentionLayer, self).__init__(**kwargs)
+    def __init__(self, config=None, **kwargs):
+        super(AttentionCell, self).__init__(**kwargs)
+        self.loaded_from_config = False
+        if config:
+          self.loaded_from_config = True
+          self.W_a = tf.Variable(config['W_a'])
+          self.U_a = tf.Variable(config['U_a'])
+          self.V_a = tf.Variable(config['V_a'])
 
     def build(self, input_shape):
         assert isinstance(input_shape, list)
         # Create a trainable weight variable for this layer.
 
-        self.W_a = self.add_weight(name='W_a',
-                                   shape=tf.TensorShape((input_shape[0][2], input_shape[0][2])),
-                                   initializer='uniform',
-                                   trainable=True)
-        self.U_a = self.add_weight(name='U_a',
-                                   shape=tf.TensorShape((input_shape[1][2], input_shape[0][2])),
-                                   initializer='uniform',
-                                   trainable=True)
-        self.V_a = self.add_weight(name='V_a',
-                                   shape=tf.TensorShape((input_shape[0][2], 1)),
-                                   initializer='uniform',
-                                   trainable=True)
+        if not self.loaded_from_config:
+          self.W_a = self.add_weight(name='W_a',
+                                    shape=tf.TensorShape((input_shape[0][2], input_shape[0][2])),
+                                    initializer='uniform',
+                                    trainable=True)
+          self.U_a = self.add_weight(name='U_a',
+                                    shape=tf.TensorShape((input_shape[1][1], input_shape[0][2])),
+                                    initializer='uniform',
+                                    trainable=True)
+          self.V_a = self.add_weight(name='V_a',
+                                    shape=tf.TensorShape((input_shape[0][2], 1)),
+                                    initializer='uniform',
+                                    trainable=True)
 
-        super(AttentionLayer, self).build(input_shape)  # Be sure to call this at the end
+        super(AttentionCell, self).build(input_shape)  # Be sure to call this at the end
 
     def call(self, inputs, verbose=False):
         """
@@ -41,6 +45,9 @@ class AttentionLayer(Layer):
         if verbose:
             print('encoder_out_seq>', encoder_out_seq.shape)
             print('decoder_out_seq>', decoder_out_seq.shape)
+            print('W_a>', self.W_a.shape)
+            print('U_a>', self.U_a.shape)
+            print('V_a>', self.V_a.shape)
 
         def energy_step(inputs, states):
             """ Step function for computing energy for a single decoder state
@@ -87,8 +94,9 @@ class AttentionLayer(Layer):
             assert_msg = "States must be an iterable. Got {} of type {}".format(states, type(states))
             assert isinstance(states, list) or isinstance(states, tuple), assert_msg
 
+            e_i = inputs[0]
             # <= batch_size, hidden_size
-            c_i = K.sum(encoder_out_seq * K.expand_dims(inputs, -1), axis=1)
+            c_i = K.sum(encoder_out_seq * tf.expand_dims(e_i, axis=-1), axis=1)
             if verbose:
                 print('ci>', c_i.shape)
             return c_i, [c_i]
@@ -96,16 +104,8 @@ class AttentionLayer(Layer):
         fake_state_c = K.sum(encoder_out_seq, axis=1)
         fake_state_e = K.sum(encoder_out_seq, axis=2)  # <= (batch_size, enc_seq_len, latent_dim
 
-        """ Computing energy outputs """
-        # e_outputs => (batch_size, de_seq_len, en_seq_len)
-        last_out, e_outputs, _ = K.rnn(
-            energy_step, decoder_out_seq, [fake_state_e],
-        )
-
-        """ Computing context vectors """
-        last_out, c_outputs, _ = K.rnn(
-            context_step, e_outputs, [fake_state_c],
-        )
+        last_out, e_outputs = energy_step(decoder_out_seq, [fake_state_e])
+        last_out, c_outputs = context_step(e_outputs, [fake_state_c])
 
         return c_outputs, e_outputs
 
@@ -115,3 +115,95 @@ class AttentionLayer(Layer):
             tf.TensorShape((input_shape[1][0], input_shape[1][1], input_shape[1][2])),
             tf.TensorShape((input_shape[1][0], input_shape[1][1], input_shape[0][1]))
         ]
+
+    def get_config(self):
+        return {
+            'W_a': self.W_a.numpy(),
+            'U_a': self.U_a.numpy(),
+            'V_a': self.V_a.numpy()
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(config=config)
+
+
+class DecoderLayer(Layer):
+
+  def __init__(self, units, constants, config=None):
+    super(DecoderLayer, self).__init__()
+    self.units = units
+    self.constants = constants
+    self.lstm_input_concat_cell = keras.layers.Concatenate(name='decoder_lstm_input_concat')
+    self.attn_concat_cell = keras.layers.Concatenate(name='decoder_attn_concat')
+
+    if not config:
+      self.lstm_cell_1 = keras.layers.LSTMCell(units=units)
+      self.lstm_cell_2 = keras.layers.LSTMCell(units=units)
+      self.lstm_cell_3 = keras.layers.LSTMCell(units=units)
+      self.attn_cell = AttentionCell(name='decoder_attention')
+      self.dense_cell = keras.layers.Dense(units=constants['Y_DIM'], activation=None, name='decoder_dense')
+    else:
+      self.lstm_cell_1 = keras.layers.LSTMCell.from_config(config['lstm_cell_1'])
+      self.lstm_cell_2 = keras.layers.LSTMCell.from_config(config['lstm_cell_2'])
+      self.lstm_cell_3 = keras.layers.LSTMCell.from_config(config['lstm_cell_3'])
+      self.attn_cell = AttentionCell.from_config(config['attn_cell'])
+      self.dense_cell = keras.layers.Dense.from_config(config['dense_cell'])
+
+    lstm_state_sizes = {
+        'h_1': tf.TensorShape(units),
+        'h_2': tf.TensorShape(units),
+        'h_3': tf.TensorShape(units),
+        'c_1': tf.TensorShape(units),
+        'c_2': tf.TensorShape(units),
+        'c_3': tf.TensorShape(units),        
+    }
+
+    self.state_size = [
+                       tf.TensorShape(constants['Y_DIM']),
+                       lstm_state_sizes,
+                       tf.TensorShape(constants['MAX_CHORALE_LENGTH']),
+                       tf.TensorShape((constants['MAX_CHORALE_LENGTH'], units))]
+    self.output_size = units
+
+  def call(self, inputs, states):
+    dense_in, lstm_states, attention_energies_in, encoder_out = states
+
+    lstm_input = self.lstm_input_concat_cell([inputs, dense_in])
+    lstm_out, [lstm_out_state_h_1, lstm_out_state_c_1] = self.lstm_cell_1(keras.layers.concatenate([inputs, dense_in]), [lstm_states['h_1'], lstm_states['c_1']])
+    lstm_out, [lstm_out_state_h_2, lstm_out_state_c_2] = self.lstm_cell_2(keras.layers.concatenate([lstm_out, dense_in]), [lstm_states['h_2'], lstm_states['c_2']])
+    lstm_out, [lstm_out_state_h_3, lstm_out_state_c_3] = self.lstm_cell_3(keras.layers.concatenate([lstm_out, dense_in]), [lstm_states['h_3'], lstm_states['c_3']])
+    lstm_out_states = {
+        'h_1': lstm_out_state_h_1,
+        'h_2': lstm_out_state_h_2,
+        'h_3': lstm_out_state_h_3,
+        'c_1': lstm_out_state_c_1,
+        'c_2': lstm_out_state_c_2,
+        'c_3': lstm_out_state_c_3,
+    }
+
+    attention_context_out, attention_energies_out = self.attn_cell([encoder_out, lstm_out])
+    attention_context_out = attention_context_out[0]
+    attention_energies_out = attention_energies_out[0]
+    concat_out = self.attn_concat_cell([attention_context_out, lstm_out])
+    dense_out = self.dense_cell(concat_out)
+    print(dense_out)
+
+    return [dense_out], [dense_out, lstm_out_states, attention_energies_out, encoder_out]
+
+  def get_config(self):
+      return {
+          'units': self.units,
+          'constants': self.constants,
+          'lstm_cell_1': self.lstm_cell_1.get_config(),
+          'lstm_cell_2': self.lstm_cell_2.get_config(),
+          'lstm_cell_3': self.lstm_cell_3.get_config(),
+          'attn_cell': self.attn_cell.get_config(),
+          'dense_cell': self.dense_cell.get_config()
+      }
+
+  @classmethod
+  def from_config(cls, config):
+      return cls(units=config['units'], constants=config['constants'], config=config)
+
+
