@@ -53,12 +53,30 @@ def _key_forgive_enharmonic_and_parallel_equality_fn(chord_a, chord_b):
   else:
     return False
 
+def _degree(chord_a, chord_b):
+  return chord_a.degree == chord_b.degree
+
+def _degree_and_quality(chord_a, chord_b):
+  return (chord_a.degree == chord_b.degree) and (chord_a.quality == chord_b.quality)
+
+def _degree_and_quality_and_inversion(chord_a, chord_b):
+  return (chord_a.degree == chord_b.degree) and (chord_a.quality == chord_b.quality) and (chord_a.inversion == chord_b.inversion)
+
+def _beat_and_measure(chord_a, chord_b):
+  return (chord_a.start_beat == chord_b.start_beat) and (chord_a.end_beat == chord_b.end_beat) and (chord_a.measure == chord_b.measure)
+
+
 EQUALITY_FNS = {
     'direct': _direct_equality_fn,
     'key': _key_equality_fn,
     'key_enharmonic': _key_forgive_enharmonic_equality_fn,
     'key_enharmonic_and_parallel': _key_forgive_enharmonic_and_parallel_equality_fn,
+    'degree': _degree,
+    'degree_and_quality': _degree_and_quality,
+    'degree_and_quality_and_inversion': _degree_and_quality_and_inversion,
+    'beat_and_measure': _beat_and_measure,
 }
+
 
 if __name__ == '__main__':
     print(levenshtein('sitten', 'ittin', equality_fn=EQUALITY_FNS['direct']))

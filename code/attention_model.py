@@ -304,17 +304,13 @@ def predict():
         result = []
         output_tokens_list = []
         attn_energies = []
-        #for k in range(10):
         for k in range(constants['MAX_ANALYSIS_LENGTH'])[:-1]:
             ins = [target_seq]
             ins.extend([prev_dense, prev_decoder_states, prev_attention_energies, encoder_output_values])
             ins.append(encoder_output_values)
-            #print("11111111111111111111   " + str(k))
             output_components, dense_outs, prev_decoder_states, prev_attention_energies = decoder_model.predict(ins)
             attn_energies.append(prev_attention_energies)
             output_tokens_after_softmax = np.concatenate([output_components[key] for key in COMPONENTS_IN_ORDER], axis=-1)
-            #print("dense_out: " + str(dense_outs))
-            #print("22222222222222222222   " + str(k))
 
             # translate to RNAChord during decoding
             rna_chord = RNAChord(encoding=output_tokens_after_softmax[0][0])
@@ -322,16 +318,10 @@ def predict():
             output_tokens_list.append(output_tokens_after_softmax)
             result.append(output_tokens_from_chord)
 
-            #if _terminate(output_tokens[0][0]):
-            # if rna_chord.is_terminal:
-            #     return result, attn_energies
-
-            #target_seq = np.ones((1, 1, constants['Y_DIM'])) * output_tokens_from_chord
             target_seq = np.ones((1, 1, constants['Y_DIM'])) * dense_outs
             prev_dense = np.ones((1, constants['Y_DIM'])) * dense_outs
             prev_dense = np.squeeze(prev_dense, axis=1)
 
-        #print("Decoding did not terminate! Returning large RNA.")
         result, attn_energies = _cut_off(result, attn_energies, output_tokens_list)
         return result, attn_energies
 
@@ -349,7 +339,7 @@ def predict():
     attn_energy_matrixes = []
     chorale_inds = list(range(len(encoder_input_data)))
     random.shuffle(chorale_inds)
-    for chorale_ind in chorale_inds[:1]:
+    for chorale_ind in chorale_inds[:20]:
         print("Eval for chorale " + str(chorale_ind))
 
         decoded, attn_energies = decode(encoder_input_data[chorale_ind], decoder_input_data[chorale_ind])
@@ -359,26 +349,26 @@ def predict():
         ground_truth = cut_off_ground_truth(decoder_target_data[chorale_ind])
         ground_truth_chords = [RNAChord(encoding=ground_truth[i]) for i in range(len(ground_truth))]
 
-        errs = levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=EQUALITY_FNS['key_enharmonic_and_parallel'], left_deletion_cost=0)
+        err_rates = collections.defaultdict(list)
+        for fn_name in EQUALITY_FNS.keys():
+          errs = levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=EQUALITY_FNS[fn_name], substitution_cost=1, left_deletion_cost=0, right_deletion_cost=1)
+          err_rates[fn_name].append(float(errs / len(decoded_rna_chords)))
+
         print("Ground Truth: %s, Decoded: %s" % (len(ground_truth_chords), len(decoded_rna_chords)))
-        len_diffs.append(len(ground_truth_chords) - len(decoded_rna_chords))
-        err_rates.append(float(errs / len(decoded_rna_chords)))
 
         # Uncomment these lines to see the ground truth RNA sequence together
         # with the decoded prediction.
-        print("--------------------- GROUND TRUTH  ------------------")
-        for c in ground_truth_chords:
-            print(c)
-        print("---------------------  PREDICTION  -------------------")
-        for c in decoded_rna_chords:
-            print(c)
-        print("-------------------- ANALYSIS COMPLETE ---------------")
+        # print("--------------------- GROUND TRUTH  ------------------")
+        # for c in ground_truth_chords:
+        #     print(c)
+        # print("---------------------  PREDICTION  -------------------")
+        # for c in decoded_rna_chords:
+        #     print(c)
+        # print("-------------------- ANALYSIS COMPLETE ---------------")
 
-    print("Error rate: " + str(np.mean(err_rates)))
-    print("Len diff: " + str(np.mean(len_diffs)))
+    for fn_name in EQUALITY_FNS.keys():
+      print("Error Name: " + fn_name + " Error Rate: " + str(np.mean(err_rates[fn_name])))
     return attn_energy_matrixes
-
-attn_energy_matrixes = predict()
 
 #train()
 attn_energy_matrixes = predict()
