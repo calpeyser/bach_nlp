@@ -130,9 +130,10 @@ class AttentionCell(Layer):
 
 class DecoderLayer(Layer):
 
-  def __init__(self, units, constants, config=None):
+  def __init__(self, units, constants, teacher_forcing_prob=1.0, config=None):
     super(DecoderLayer, self).__init__()
     self.units = units
+    self.teacher_forcing_prob=teacher_forcing_prob
     self.constants = constants
     self.lstm_input_concat_cell = keras.layers.Concatenate(name='decoder_lstm_input_concat')
     self.attn_concat_cell = keras.layers.Concatenate(name='decoder_attn_concat')
@@ -150,14 +151,9 @@ class DecoderLayer(Layer):
       self.attn_cell = AttentionCell.from_config(config['attn_cell'])
       self.dense_cell = keras.layers.Dense.from_config(config['dense_cell'])
 
-    lstm_state_sizes = {
-        'h_1': tf.TensorShape(units),
-        'h_2': tf.TensorShape(units),
-        'h_3': tf.TensorShape(units),
-        'c_1': tf.TensorShape(units),
-        'c_2': tf.TensorShape(units),
-        'c_3': tf.TensorShape(units),        
-    }
+    lstm_state_sizes = [
+        units, units, units, units, units, units       
+    ]
 
     self.state_size = [
                        tf.TensorShape(constants['Y_DIM']),
@@ -168,32 +164,39 @@ class DecoderLayer(Layer):
 
   def call(self, inputs, states):
     dense_in, lstm_states, attention_energies_in, encoder_out = states
+    
+    inputs_and_dense = self.lstm_input_concat_cell([inputs, dense_in, attention_energies_in])
+    dense_and_dense =  self.lstm_input_concat_cell([dense_in, dense_in, attention_energies_in])
 
-    lstm_input = self.lstm_input_concat_cell([inputs, dense_in])
-    lstm_out, [lstm_out_state_h_1, lstm_out_state_c_1] = self.lstm_cell_1(keras.layers.concatenate([inputs, dense_in]), [lstm_states['h_1'], lstm_states['c_1']])
-    lstm_out, [lstm_out_state_h_2, lstm_out_state_c_2] = self.lstm_cell_2(keras.layers.concatenate([lstm_out, dense_in]), [lstm_states['h_2'], lstm_states['c_2']])
-    lstm_out, [lstm_out_state_h_3, lstm_out_state_c_3] = self.lstm_cell_3(keras.layers.concatenate([lstm_out, dense_in]), [lstm_states['h_3'], lstm_states['c_3']])
-    lstm_out_states = {
-        'h_1': lstm_out_state_h_1,
-        'h_2': lstm_out_state_h_2,
-        'h_3': lstm_out_state_h_3,
-        'c_1': lstm_out_state_c_1,
-        'c_2': lstm_out_state_c_2,
-        'c_3': lstm_out_state_c_3,
-    }
+    lstm_input = tf.cond(tf.random.uniform(shape=(), minval=0, maxval=1) < self.teacher_forcing_prob,
+                         true_fn=lambda: inputs_and_dense,
+                         false_fn=lambda: dense_and_dense)
+
+    lstm_in_state_h_1, lstm_in_state_h_2, lstm_in_state_h_3, lstm_in_state_c_1, lstm_in_state_c_2, lstm_in_state_c_3 = lstm_states
+    lstm_out_1, [lstm_out_state_h_1, lstm_out_state_c_1] = self.lstm_cell_1(lstm_input, [lstm_in_state_h_1, lstm_in_state_c_1])
+    lstm_out_2, [lstm_out_state_h_2, lstm_out_state_c_2] = self.lstm_cell_2(lstm_out_1, [lstm_in_state_h_2, lstm_in_state_c_2])
+    lstm_out, [lstm_out_state_h_3, lstm_out_state_c_3] = self.lstm_cell_3(lstm_out_2, [lstm_in_state_h_3, lstm_in_state_c_3])
+    lstm_out_states = [
+        lstm_out_state_h_1,
+        lstm_out_state_h_2,
+        lstm_out_state_h_3,
+        lstm_out_state_c_1,
+        lstm_out_state_c_2,
+        lstm_out_state_c_3,
+    ]
 
     attention_context_out, attention_energies_out = self.attn_cell([encoder_out, lstm_out])
     attention_context_out = attention_context_out[0]
     attention_energies_out = attention_energies_out[0]
     concat_out = self.attn_concat_cell([attention_context_out, lstm_out])
     dense_out = self.dense_cell(concat_out)
-    print(dense_out)
 
-    return [dense_out], [dense_out, lstm_out_states, attention_energies_out, encoder_out]
+    return [dense_out, attention_energies_out], [dense_out, lstm_out_states, attention_energies_out, encoder_out]
 
   def get_config(self):
       return {
           'units': self.units,
+          'teacher_forcing_prob': self.teacher_forcing_prob,
           'constants': self.constants,
           'lstm_cell_1': self.lstm_cell_1.get_config(),
           'lstm_cell_2': self.lstm_cell_2.get_config(),
@@ -204,6 +207,5 @@ class DecoderLayer(Layer):
 
   @classmethod
   def from_config(cls, config):
-      return cls(units=config['units'], constants=config['constants'], config=config)
-
+      return cls(units=config['units'], constants=config['constants'], teacher_forcing_prob=config['teacher_forcing_prob'], config=config)
 
