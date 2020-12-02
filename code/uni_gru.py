@@ -19,16 +19,15 @@ def _build_model(constants):
     masking_layer = keras.layers.Masking(mask_value=constants['MASK_VALUE'])
     masked_inputs = masking_layer(encoder_inputs)
     
-    encoder = keras.layers.LSTM(LATENT_DIM, return_state=True)
-    _, state_h, state_c = encoder(masked_inputs)
-    encoder_states = [state_h, state_c]
+    encoder = keras.layers.GRU(LATENT_DIM, return_state=True)
+    _, encoder_states = encoder(masked_inputs)
 
     decoder_inputs = keras.Input(shape=(constants['MAX_SEQ_LEN'], constants['Y_DIM']))
 
-    decoder_lstm = keras.layers.LSTM(LATENT_DIM, return_sequences=True, return_state=True)
+    decoder_gru = keras.layers.GRU(LATENT_DIM, return_sequences=True, return_state=True)
     decoder_dense = keras.layers.Dense(constants['Y_DIM'], activation=None)
 
-    decoder_outputs, _, _ = decoder_lstm(decoder_inputs, initial_state=encoder_states)
+    decoder_outputs, _ = decoder_gru(decoder_inputs, initial_state=[encoder_states])
     decoder_outputs = decoder_dense(decoder_outputs)
 
 
@@ -45,39 +44,37 @@ def train():
     model.compile(optimizer=o, loss=l)
     model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
             batch_size=32, epochs=int(sys.argv[3]), validation_split=0.05)
-    model.save(f'uni_lstm_{LATENT_DIM}')
+    model.save(f'uni_gru_{LATENT_DIM}')
 
 def predict():
     train_data, test_data, constants = feature_extractors.load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
-    model = keras.models.load_model(f'uni_lstm_{LATENT_DIM}')
+    model = keras.models.load_model(f'uni_gru_{LATENT_DIM}')
     
     # Extract encoder from graph
     encoder_inputs = model.input[0]
-    _, state_h_enc, state_c_enc = model.layers[3].output  # lstm_1
-    encoder_states = [state_h_enc, state_c_enc]
-    encoder_model = keras.Model(encoder_inputs, encoder_states)
-
+    _, encoder_states = model.layers[3].output  # lstm_1
+    encoder_model = keras.Model(encoder_inputs, [encoder_states])
+    
     # Extract decoder from graph
     decoder_inputs = model.input[1]
-    decoder_state_input_h = keras.Input(shape=(LATENT_DIM,), name="input_3")
-    decoder_state_input_c = keras.Input(shape=(LATENT_DIM,), name="input_4")
-    decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
-
-    decoder_lstm = model.layers[-2]
+    decoder_states_inputs = keras.Input(shape=(LATENT_DIM,), name="input_3")
+    
+    decoder_gru = model.layers[-2]
     decoder_dense = model.layers[-1]
 
-    decoder_outputs, state_h_dec, state_c_dec = decoder_lstm(
+    decoder_outputs, decoder_states = decoder_gru(
         decoder_inputs, initial_state=decoder_states_inputs
     )
-    decoder_states = [state_h_dec, state_c_dec]
     decoder_outputs = decoder_dense(decoder_outputs)
-    decoder_model = keras.Model(
-        [decoder_inputs] + decoder_states_inputs,
-        [decoder_outputs] + decoder_states
-    )
 
+    x = [decoder_inputs] + [decoder_states_inputs]
+    y = [decoder_outputs] + [decoder_states]
+    
+    decoder_model = keras.Model(x,y)
+
+    
     def _terminate(toks):
         return np.isclose(np.mean(-1 - toks), 0.0, atol=0.5)
     
@@ -88,14 +85,14 @@ def predict():
         result = []
         stop = False
         for _ in range(100):
-            output_tokens, h, c = decoder_model.predict(
-                [target_seq] + states_value)
+            output_tokens, state = decoder_model.predict(
+                [target_seq] + [states_value])
             if _terminate(output_tokens):
                 return result
             result.append(output_tokens)
 
             target_seq = np.ones((1, 1, constants['Y_DIM'])) * output_tokens
-            states_value = [h, c]
+            states_value = [state]
         print("Decoding did not terminate! Returning large RNA.")
         return result
 

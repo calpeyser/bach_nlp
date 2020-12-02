@@ -15,7 +15,7 @@ CHORALE_EMBEDDING_SIZE=79
 ANALYSIS_EMBEDDING_SIZE=34
 
 # Optional, if you want to view chorales
-music21.environment.set('musicxmlPath', '/usr/bin/musescore3')
+# music21.environment.set('musicxmlPath', '/usr/bin/musescore3')
 
 def _one_hot(index, depth):
     res = np.zeros(depth)
@@ -36,13 +36,14 @@ class RNAChord(object):
             self.end_beat = romantext_chord.offset + romantext_chord.duration.quarterLength
             self.is_terminal=is_terminal
         elif encoding != []:
-            assert len(encoding == ANALYSIS_EMBEDDING_SIZE)
+            assert len(encoding) == ANALYSIS_EMBEDDING_SIZE
             self._decode_key(encoding[:13])
             self._decode_degree(encoding[13:21])
             self._decode_inversion(encoding[21:25])
             self._decode_quality(encoding[25:30])
             self._decode_measure(encoding[30])
             self._decode_beat(encoding[31:33])
+            self.is_terminal = is_terminal
         else:
             raise Exception("RNAChord requires either romantext_chord or encoding")
 

@@ -19,17 +19,21 @@ def _build_model(constants):
     masking_layer = keras.layers.Masking(mask_value=constants['MASK_VALUE'])
     masked_inputs = masking_layer(encoder_inputs)
     
-    encoder = keras.layers.LSTM(LATENT_DIM, return_state=True)
-    _, state_h, state_c = encoder(masked_inputs)
-    encoder_states = [state_h, state_c]
+    encoder = keras.layers.Bidirectional(keras.layers.GRU(LATENT_DIM, return_state=True))
+    enc_out, forward, backward = encoder(masked_inputs)
+    states = keras.layers.Concatenate()([forward, backward])
+    encoder_states = [states]
 
     decoder_inputs = keras.Input(shape=(constants['MAX_SEQ_LEN'], constants['Y_DIM']))
 
-    decoder_lstm = keras.layers.LSTM(LATENT_DIM, return_sequences=True, return_state=True)
+    decoder_gru = keras.layers.GRU(LATENT_DIM*2, return_sequences=True, return_state=True)
     decoder_dense = keras.layers.Dense(constants['Y_DIM'], activation=None)
 
-    decoder_outputs, _, _ = decoder_lstm(decoder_inputs, initial_state=encoder_states)
+    decoder_outputs, _ = decoder_gru(decoder_inputs,
+                                        initial_state=encoder_states)
+    # decoder_outputs, _, _ = decoder_lstm(decoder_inputs)
     decoder_outputs = decoder_dense(decoder_outputs)
+    #decoder_outputs = tf.compat.v1.Print(decoder_outputs, [decoder_outputs], summarize=100)
 
 
     m =  keras.Model([encoder_inputs, decoder_inputs], decoder_outputs)
@@ -39,39 +43,44 @@ def train():
     train_data, test_data, constants = feature_extractors.load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = train_data
     model = _build_model(constants)
-
+    print(model.summary())
     l = keras.losses.MeanSquaredError()
     o = keras.optimizers.Adam(learning_rate=0.0075)
     model.compile(optimizer=o, loss=l)
     model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
-            batch_size=32, epochs=int(sys.argv[3]), validation_split=0.05)
-    model.save(f'uni_lstm_{LATENT_DIM}')
+            batch_size=64,
+            epochs=int(sys.argv[3]),
+            validation_split=0.05)
+    model.save(f'bidirect_gru_{LATENT_DIM}')
 
 def predict():
     train_data, test_data, constants = feature_extractors.load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
-    model = keras.models.load_model(f'uni_lstm_{LATENT_DIM}')
+    model = keras.models.load_model(f'bidirect_gru_{LATENT_DIM}')
     
     # Extract encoder from graph
     encoder_inputs = model.input[0]
-    _, state_h_enc, state_c_enc = model.layers[3].output  # lstm_1
-    encoder_states = [state_h_enc, state_c_enc]
+    # print(model.summary())
+    # return
+    _, forward, backward = model.layers[2].output  # lstm_1
+    # return
+    states = keras.layers.Concatenate()([forward, backward])
+    encoder_states = [states]
     encoder_model = keras.Model(encoder_inputs, encoder_states)
 
     # Extract decoder from graph
     decoder_inputs = model.input[1]
-    decoder_state_input_h = keras.Input(shape=(LATENT_DIM,), name="input_3")
-    decoder_state_input_c = keras.Input(shape=(LATENT_DIM,), name="input_4")
-    decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
+    decoder_state_input_h = keras.Input(shape=(LATENT_DIM*2,), name="input_3")
+    decoder_states_inputs = [decoder_state_input_h]
 
     decoder_lstm = model.layers[-2]
     decoder_dense = model.layers[-1]
 
-    decoder_outputs, state_h_dec, state_c_dec = decoder_lstm(
+    decoder_outputs, states = decoder_lstm(
         decoder_inputs, initial_state=decoder_states_inputs
     )
-    decoder_states = [state_h_dec, state_c_dec]
+    decoder_states = [states]
     decoder_outputs = decoder_dense(decoder_outputs)
     decoder_model = keras.Model(
         [decoder_inputs] + decoder_states_inputs,
@@ -88,14 +97,14 @@ def predict():
         result = []
         stop = False
         for _ in range(100):
-            output_tokens, h, c = decoder_model.predict(
-                [target_seq] + states_value)
+            output_tokens, states = decoder_model.predict(
+                [target_seq] + [states_value])
             if _terminate(output_tokens):
                 return result
             result.append(output_tokens)
 
             target_seq = np.ones((1, 1, constants['Y_DIM'])) * output_tokens
-            states_value = [h, c]
+            states_value = [states]
         print("Decoding did not terminate! Returning large RNA.")
         return result
 
@@ -124,7 +133,6 @@ def predict():
         err_rates.append(float(errs / len(ground_truth_chords)))
     print("Error rate: " + str(np.mean(err_rates)))
     print("Len diff: " + str(np.mean(len_diffs)))
-
 
 if __name__ == '__main__':
     if sys.argv[1] == "train":
