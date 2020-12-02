@@ -93,7 +93,7 @@ def create_losses(mask_value):
     return 0
 
   LOSSES = {
-      'key': _create_masked_loss(KEY_SLICE, lambda x: return 1.0*xentropy_fn(x)),
+      'key': _create_masked_loss(KEY_SLICE, xentropy_fn),
       'mode': _create_masked_loss(MODE_SLICE, mse_fn),
       'degree': _create_masked_loss(DEGREE_SLICE, xentropy_fn),
       'inversion': _create_masked_loss(INVERSION_SLICE, xentropy_fn),
