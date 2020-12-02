@@ -1,4 +1,5 @@
-import os, pathlib
+import os
+import pathlib
 
 import music21
 import numpy as np
@@ -7,7 +8,8 @@ import numpy as np
 def levenshtein(seq_a, seq_b, equality_fn=None, substitution_cost=1, left_deletion_cost=1, right_deletion_cost=1):
     assert(equality_fn is not None, 'equality_fn must be set')
 
-    memo = [[None for _ in range(len(seq_b) + 1)] for _ in range(len(seq_a) + 1)]
+    memo = [[None for _ in range(len(seq_b) + 1)]
+            for _ in range(len(seq_a) + 1)]
 
     def _levenshtein(inner_seq_a, inner_seq_b):
         if memo[len(inner_seq_a)][len(inner_seq_b)] != None:
@@ -18,13 +20,16 @@ def levenshtein(seq_a, seq_b, equality_fn=None, substitution_cost=1, left_deleti
         elif len(inner_seq_a) == 0:
             res = len(inner_seq_b)
         else:
-            reduce_a = left_deletion_cost + _levenshtein(inner_seq_a[:-1], inner_seq_b)
-            reduce_b = right_deletion_cost + _levenshtein(inner_seq_a, inner_seq_b[:-1])
+            reduce_a = left_deletion_cost + \
+                _levenshtein(inner_seq_a[:-1], inner_seq_b)
+            reduce_b = right_deletion_cost + \
+                _levenshtein(inner_seq_a, inner_seq_b[:-1])
 
             incurred_substitution_penalty = substitution_cost
             if equality_fn(inner_seq_a[-1], inner_seq_b[-1]):
                 incurred_substitution_penalty = 0
-            reduce_both = incurred_substitution_penalty + _levenshtein(inner_seq_a[:-1], inner_seq_b[:-1])
+            reduce_both = incurred_substitution_penalty + \
+                _levenshtein(inner_seq_a[:-1], inner_seq_b[:-1])
 
             res = min(reduce_a, reduce_b, reduce_both)
 
@@ -33,17 +38,21 @@ def levenshtein(seq_a, seq_b, equality_fn=None, substitution_cost=1, left_deleti
 
     return _levenshtein(seq_a, seq_b)
 
+
 def _direct_equality_fn(a, b):
     return a == b
 
+
 def _key_equality_fn(chord_a, chord_b):
     return chord_a.key == chord_b.key
+
 
 def _key_forgive_enharmonic_equality_fn(chord_a, chord_b):
     if chord_a.key == chord_b.key:
         return True
     else:
         return chord_a.key == chord_b.key.relative
+
 
 def _key_forgive_enharmonic_and_parallel_equality_fn(chord_a, chord_b):
   if _key_forgive_enharmonic_equality_fn(chord_a, chord_b):

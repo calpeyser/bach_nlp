@@ -1,6 +1,8 @@
 chorale_model*
-model_*
-data/*
+model*
+data*
 venv/*
 .vscode/*
-cod/__py_cache__*
+code/__pycache__*
+*.npy
+*.ipynb

@@ -55,8 +55,10 @@ class AttentionCell(Layer):
             states: (batchsize * 1 * de_latent_dim)
             """
 
-            assert_msg = "States must be an iterable. Got {} of type {}".format(states, type(states))
-            assert isinstance(states, list) or isinstance(states, tuple), assert_msg
+            assert_msg = "States must be an iterable. Got {} of type {}".format(
+                states, type(states))
+            assert isinstance(states, list) or isinstance(
+                states, tuple), assert_msg
 
             """ Some parameters required for shaping tensors"""
             en_seq_len, en_hidden = encoder_out_seq.shape[1], encoder_out_seq.shape[2]
@@ -67,7 +69,8 @@ class AttentionCell(Layer):
             W_a_dot_s = K.dot(encoder_out_seq, self.W_a)
 
             """ Computing hj.Ua """
-            U_a_dot_h = K.expand_dims(K.dot(inputs, self.U_a), 1)  # <= batch_size, 1, latent_dim
+            U_a_dot_h = K.expand_dims(
+                K.dot(inputs, self.U_a), 1)  # <= batch_size, 1, latent_dim
             if verbose:
                 print('Ua.h>', U_a_dot_h.shape)
 
@@ -91,8 +94,10 @@ class AttentionCell(Layer):
         def context_step(inputs, states):
             """ Step function for computing ci using ei """
 
-            assert_msg = "States must be an iterable. Got {} of type {}".format(states, type(states))
-            assert isinstance(states, list) or isinstance(states, tuple), assert_msg
+            assert_msg = "States must be an iterable. Got {} of type {}".format(
+                states, type(states))
+            assert isinstance(states, list) or isinstance(
+                states, tuple), assert_msg
 
             e_i = inputs[0]
             # <= batch_size, hidden_size
@@ -102,7 +107,8 @@ class AttentionCell(Layer):
             return c_i, [c_i]
 
         fake_state_c = K.sum(encoder_out_seq, axis=1)
-        fake_state_e = K.sum(encoder_out_seq, axis=2)  # <= (batch_size, enc_seq_len, latent_dim
+        # <= (batch_size, enc_seq_len, latent_dim
+        fake_state_e = K.sum(encoder_out_seq, axis=2)
 
         last_out, e_outputs = energy_step(decoder_out_seq, [fake_state_e])
         last_out, c_outputs = context_step(e_outputs, [fake_state_c])
@@ -112,8 +118,10 @@ class AttentionCell(Layer):
     def compute_output_shape(self, input_shape):
         """ Outputs produced by the layer """
         return [
-            tf.TensorShape((input_shape[1][0], input_shape[1][1], input_shape[1][2])),
-            tf.TensorShape((input_shape[1][0], input_shape[1][1], input_shape[0][1]))
+            tf.TensorShape(
+                (input_shape[1][0], input_shape[1][1], input_shape[1][2])),
+            tf.TensorShape(
+                (input_shape[1][0], input_shape[1][1], input_shape[0][1]))
         ]
 
     def get_config(self):
@@ -208,4 +216,7 @@ class DecoderLayer(Layer):
   @classmethod
   def from_config(cls, config):
       return cls(units=config['units'], constants=config['constants'], teacher_forcing_prob=config['teacher_forcing_prob'], config=config)
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
