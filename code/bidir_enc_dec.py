@@ -118,7 +118,7 @@ def create_losses(mask_value):
 
 
 LOSS_WEIGHTS = {
-    'key': float(sys.argv[5]),
+    'key': 1.0,
     'mode': 1.0,
     'degree': 1.0,
     'inversion': 1.0,
@@ -402,5 +402,4 @@ if __name__ == '__main__':
             dec_inputs.append(dec_ind)
         mats = np.array(mats)
 
-        # added this to loss.py
-        np.save(f'attn_loss{str(sys.argv[5])}.npy', mats)
+        np.save(f'attn.npy', mats)
