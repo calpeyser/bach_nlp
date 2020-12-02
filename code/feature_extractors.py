@@ -14,6 +14,9 @@ MAX_ANALYSIS_LENGTH = 229
 CHORALE_EMBEDDING_SIZE=79
 ANALYSIS_EMBEDDING_SIZE=34
 
+# Optional, if you want to view chorales
+# music21.environment.set('musicxmlPath', '/usr/bin/musescore3')
+
 def _one_hot(index, depth):
     res = np.zeros(depth)
     res[index] = 1
