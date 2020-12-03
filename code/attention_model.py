@@ -200,8 +200,6 @@ def train():
             shuffle=True,
             verbose=1,
             callbacks=[model_checkpoint_callback])
-    #model.save(MODEL_PATH + '/overfit')
-    #model.save(MODEL_PATH + '/thrush_attn_32_bs256_ep200_istermmse_lr001B108_luongattn_big_TFprob0.5')
 
 def predict():
     train_data, test_data, constants = DATASET
@@ -222,7 +220,8 @@ def predict():
     model = _build_model(constants)
     #model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big_TF075_4/660/variables/variables')
     #model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big_TF05_4/720/variables/variables')
-    model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_attnin_lr001B09_luongattn_big_TF075_4/1400/variables/variables')
+    model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_attnin_lr001B09_luongattn_big_TF09_4/1520/variables/variables')
+    #model.load_weights(MODEL_PATH + '/thrush_attn_64_bs256_attnin_lr001B09_luongattn_big_TF09_dropout/700/variables/variables')
 
     def _get_layers(layer_type):
       return [l for l in model.layers if layer_type in str(type(l))]
@@ -370,5 +369,6 @@ def predict():
       print("Error Name: " + fn_name + " Error Rate: " + str(np.mean(err_rates[fn_name])))
     return attn_energy_matrixes
 
-#train()
+train()
 attn_energy_matrixes = predict()
+

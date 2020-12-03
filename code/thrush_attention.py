@@ -1,10 +1,3 @@
-import tensorflow as tf
-import os
-from tensorflow.python import keras
-from tensorflow.python.keras.layers import Layer
-from tensorflow.python.keras import backend as K
-
-
 class AttentionCell(Layer):
 
     def __init__(self, config=None, **kwargs):
@@ -209,3 +202,6 @@ class DecoderLayer(Layer):
   def from_config(cls, config):
       return cls(units=config['units'], constants=config['constants'], teacher_forcing_prob=config['teacher_forcing_prob'], config=config)
 
+
+print(AttentionCell)
+print(DecoderLayer)
