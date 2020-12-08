@@ -1,24 +1,21 @@
-import os
-import pathlib
-import sys
+import os, pathlib, sys
 
 import numpy as np
 import random
+import collections
 
 import tensorflow as tf
 from tensorflow import keras 
 
-from feature_extractors import RNAChord, ChoraleChord
+from feature_extractors import RNAChord, ChoraleChord, load_dataset
 from scoring import levenshtein, EQUALITY_FNS
 from thrush_attention import DecoderLayer
 
 K = keras.backend
 
-LATENT_DIM = 32
+LATENT_DIM = int(sys.argv[2])
 
-ROOT='/content/drive/My Drive/bach_nlp'
-
-MODEL_PATH = ROOT + '/model'
+MODEL_PATH = './model'
 
 COMPONENTS_IN_ORDER = ['key', 'mode', 'degree', 'inversion', 'quality', 'measure', 'beat', 'is_terminal']
 
@@ -117,7 +114,7 @@ LOSS_WEIGHTS = {
 }
 
 # Builds the attention model for training.
-def _build_model(constants):
+def _build_model(constants, teacher_forcing_prob):
     encoder_inputs = keras.Input(shape=(constants['MAX_CHORALE_LENGTH'], constants['X_DIM']), name='chorale_input')
     chorale_masking_layer = keras.layers.Masking(mask_value=constants['MASK_VALUE'], name='chorale_masking')
     masked_encoder_inputs = chorale_masking_layer(encoder_inputs)
@@ -134,7 +131,7 @@ def _build_model(constants):
     rna_masking_layer = keras.layers.Masking(mask_value=constants['MASK_VALUE'], name='rna_masking')
     masked_decoder_inputs = rna_masking_layer(decoder_inputs)
 
-    decoder_layer = DecoderLayer(units=LATENT_DIM, constants=constants, teacher_forcing_prob=0.0)
+    decoder_layer = DecoderLayer(units=LATENT_DIM, constants=constants, teacher_forcing_prob=teacher_forcing_prob)
     decoder_recurrent = keras.layers.RNN(decoder_layer, return_sequences=True, return_state=True, name='decoder_layer')
 
     # hack to obtain zero vector as a Keras tensor
@@ -172,10 +169,10 @@ class NBatchLogger(keras.callbacks.Callback):
             print('Epoch %s, Metrics: %s' % (str(epoch), str(logs)))
 
 
-def train():
+def train(teacher_forcing_prob):
     #tf.debugging.set_log_device_placement(True)
 
-    train_data, test_data, constants = DATASET
+    train_data, test_data, constants = load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = train_data
 
     # Add slices here to train on only a subset of the data
@@ -183,30 +180,31 @@ def train():
     decoder_input_data = decoder_input_data
     decoder_target_data = decoder_target_data
 
-    model = _build_model(constants)
+    model = _build_model(constants, teacher_forcing_prob)
     model.summary(line_length=200)
 
     l = create_losses(constants['MASK_VALUE'])
     o = keras.optimizers.Adam(learning_rate=0.001, beta_1=0.8)
+    epochs = int(sys.argv[3])
     model.compile(optimizer=o, loss=l, loss_weights=LOSS_WEIGHTS)
 
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=MODEL_PATH + '/thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big/{epoch:02d}',
+        filepath=MODEL_PATH + '/bigthrush/{epoch:02d}',
         save_weights_only=False,
         save_freq=150)
 
     model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
-            batch_size=256,
-            epochs=500,
+            batch_size=64,
+            epochs=epochs,
             validation_split=0.05,
             shuffle=True,
             verbose=1,
             callbacks=[model_checkpoint_callback])
-    #model.save(MODEL_PATH + '/overfit')
-    #model.save(MODEL_PATH + '/thrush_attn_32_bs256_ep200_istermmse_lr001B108_luongattn_big_TFprob0.5')
 
-def predict():
-    train_data, test_data, constants = DATASET
+    model.save('runmodel')
+
+def predict(epochs, teacher_forcing_prob):
+    train_data, test_data, constants = load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
     # Add slices here to test only a subset of the data
@@ -221,10 +219,11 @@ def predict():
     #                                     'AttentionCell': AttentionCell,
     #                                 },
     #                                 compile=False)
-    model = _build_model(constants)
+    model = _build_model(constants,teacher_forcing_prob)
     #model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big_TF075_4/660/variables/variables')
     #model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big_TF05_4/720/variables/variables')
-    model.load_weights(MODEL_PATH + '/thrush_attn_32_bs256_attnin_lr001B09_luongattn_big_TF075_4/1400/variables/variables')
+    model.load_weights('runmodel/variables/variables')
+    #model.load_weights(MODEL_PATH + '/thrush_attn_64_bs256_attnin_lr001B09_luongattn_big_TF09_dropout/700/variables/variables')
 
     def _get_layers(layer_type):
       return [l for l in model.layers if layer_type in str(type(l))]
@@ -341,7 +340,7 @@ def predict():
     attn_energy_matrixes = []
     chorale_inds = list(range(len(encoder_input_data)))
     random.shuffle(chorale_inds)
-    for chorale_ind in chorale_inds[:20]:
+    for chorale_ind in chorale_inds:
         print("Eval for chorale " + str(chorale_ind))
 
         decoded, attn_energies = decode(encoder_input_data[chorale_ind], decoder_input_data[chorale_ind])
@@ -353,7 +352,7 @@ def predict():
 
         err_rates = collections.defaultdict(list)
         for fn_name in EQUALITY_FNS.keys():
-          errs = levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=EQUALITY_FNS[fn_name], substitution_cost=1, left_deletion_cost=0, right_deletion_cost=1)
+          errs = levenshtein(ground_truth_chords, decoded_rna_chords, equality_fn=EQUALITY_FNS[fn_name], substitution_cost=1, left_deletion_cost=1, right_deletion_cost=1)
           err_rates[fn_name].append(float(errs / len(decoded_rna_chords)))
 
         print("Ground Truth: %s, Decoded: %s" % (len(ground_truth_chords), len(decoded_rna_chords)))
@@ -372,5 +371,17 @@ def predict():
       print("Error Name: " + fn_name + " Error Rate: " + str(np.mean(err_rates[fn_name])))
     return attn_energy_matrixes
 
-#train()
-attn_energy_matrixes = predict()
+
+if __name__ == '__main__':
+    if sys.argv[1] == "train":
+        train(float(sys.argv[4]))
+    elif sys.argv[1] == "pred":
+        attns = predict(int(sys.argv[3]), float(sys.argv[4]))
+        mats = []
+        dec_inputs = []
+        for dec_ind, attn in enumerate(attns[0]):
+            mats.append(attn.reshape(-1))
+            dec_inputs.append(dec_ind)
+        mats = np.array(mats)
+
+        np.save(f'attn.npy', mats)

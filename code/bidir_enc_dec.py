@@ -219,23 +219,20 @@ def train(teacher_forcing_prob):
         filepath='thrush_attn_bidir_32_istermmse_lr001B09_luongattn_big/{epoch:02d}', save_weights_only=False, save_freq=150)
 
     model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
-              batch_size=64,
+              batch_size=128,
               epochs=epochs,
               validation_split=0.05,
               shuffle=True,
-              verbose=1,
-              callbacks=[model_checkpoint_callback])
+              verbose=1)
     
-    model.save(
-        f'thrush_attn_bidir_{LATENT_DIM}_istermmse_lr001B09_luongattn_big_{epochs}')
+    model.save('runmodel2')
 
 def predict(epochs, teacher_forcing_prob):
     train_data, test_data, constants = feature_extractors.load_dataset()
     encoder_input_data, decoder_input_data, decoder_target_data = test_data
 
     model = _build_model(constants, teacher_forcing_prob=teacher_forcing_prob)
-    model.load_weights(
-        f'thrush_attn_bidir_{LATENT_DIM}_istermmse_lr001B09_luongattn_big_{epochs}/variables/variables')
+    model.load_weights('runmodel2/variables/variables')
     # model.load_weights(
     #     f'thrush_attn_32_bs256_istermmse_lr001B09_luongattn_big_{LATENT_DIM}_{epochs}/variables/variables')
 
@@ -362,7 +359,7 @@ def predict(epochs, teacher_forcing_prob):
     attn_energy_matrixes = []
     chorale_inds = list(range(len(encoder_input_data)))
     random.shuffle(chorale_inds)
-    for chorale_ind in chorale_inds[:20]:
+    for chorale_ind in chorale_inds:
         print("Eval for chorale " + str(chorale_ind))
 
         decoded, atnn_energies = decode(
@@ -379,7 +376,7 @@ def predict(epochs, teacher_forcing_prob):
         err_rates = collections.defaultdict(list)
         for fn_name in EQUALITY_FNS.keys():
           errs = levenshtein(ground_truth_chords, decoded_rna_chords,
-                             equality_fn=EQUALITY_FNS[fn_name], substitution_cost=1, left_deletion_cost=0, right_deletion_cost=1)
+                             equality_fn=EQUALITY_FNS[fn_name], substitution_cost=1, left_deletion_cost=1, right_deletion_cost=1)
           err_rates[fn_name].append(float(errs / len(decoded_rna_chords)))
         print("Ground Truth: %s, Decoded: %s" %
               (len(ground_truth_chords), len(decoded_rna_chords)))
@@ -402,4 +399,4 @@ if __name__ == '__main__':
             dec_inputs.append(dec_ind)
         mats = np.array(mats)
 
-        np.save(f'attn.npy', mats)
+        np.save(sys.argv[5], mats)

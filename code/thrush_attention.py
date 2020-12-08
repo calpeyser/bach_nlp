@@ -22,19 +22,23 @@ class AttentionCell(Layer):
 
         if not self.loaded_from_config:
           self.W_a = self.add_weight(name='W_a',
-                                    shape=tf.TensorShape((input_shape[0][2], input_shape[0][2])),
-                                    initializer='uniform',
-                                    trainable=True)
+                                     shape=tf.TensorShape(
+                                         (input_shape[0][2], input_shape[0][2])),
+                                     initializer='uniform',
+                                     trainable=True)
           self.U_a = self.add_weight(name='U_a',
-                                    shape=tf.TensorShape((input_shape[1][1], input_shape[0][2])),
-                                    initializer='uniform',
-                                    trainable=True)
+                                     shape=tf.TensorShape(
+                                         (input_shape[1][1], input_shape[0][2])),
+                                     initializer='uniform',
+                                     trainable=True)
           self.V_a = self.add_weight(name='V_a',
-                                    shape=tf.TensorShape((input_shape[0][2], 1)),
-                                    initializer='uniform',
-                                    trainable=True)
+                                     shape=tf.TensorShape(
+                                         (input_shape[0][2], 1)),
+                                     initializer='uniform',
+                                     trainable=True)
 
-        super(AttentionCell, self).build(input_shape)  # Be sure to call this at the end
+        # Be sure to call this at the end
+        super(AttentionCell, self).build(input_shape)
 
     def call(self, inputs, verbose=False):
         """
@@ -141,49 +145,60 @@ class DecoderLayer(Layer):
   def __init__(self, units, constants, teacher_forcing_prob=1.0, config=None):
     super(DecoderLayer, self).__init__()
     self.units = units
-    self.teacher_forcing_prob=teacher_forcing_prob
+    self.teacher_forcing_prob = teacher_forcing_prob
     self.constants = constants
-    self.lstm_input_concat_cell = keras.layers.Concatenate(name='decoder_lstm_input_concat')
-    self.attn_concat_cell = keras.layers.Concatenate(name='decoder_attn_concat')
+    self.lstm_input_concat_cell = keras.layers.Concatenate(
+        name='decoder_lstm_input_concat')
+    self.attn_concat_cell = keras.layers.Concatenate(
+        name='decoder_attn_concat')
 
     if not config:
       self.lstm_cell_1 = keras.layers.LSTMCell(units=units)
       self.lstm_cell_2 = keras.layers.LSTMCell(units=units)
       self.lstm_cell_3 = keras.layers.LSTMCell(units=units)
       self.attn_cell = AttentionCell(name='decoder_attention')
-      self.dense_cell = keras.layers.Dense(units=constants['Y_DIM'], activation=None, name='decoder_dense')
+      self.dense_cell = keras.layers.Dense(
+          units=constants['Y_DIM'], activation=None, name='decoder_dense')
     else:
-      self.lstm_cell_1 = keras.layers.LSTMCell.from_config(config['lstm_cell_1'])
-      self.lstm_cell_2 = keras.layers.LSTMCell.from_config(config['lstm_cell_2'])
-      self.lstm_cell_3 = keras.layers.LSTMCell.from_config(config['lstm_cell_3'])
+      self.lstm_cell_1 = keras.layers.LSTMCell.from_config(
+          config['lstm_cell_1'])
+      self.lstm_cell_2 = keras.layers.LSTMCell.from_config(
+          config['lstm_cell_2'])
+      self.lstm_cell_3 = keras.layers.LSTMCell.from_config(
+          config['lstm_cell_3'])
       self.attn_cell = AttentionCell.from_config(config['attn_cell'])
       self.dense_cell = keras.layers.Dense.from_config(config['dense_cell'])
 
     lstm_state_sizes = [
-        units, units, units, units, units, units       
+        units, units, units, units, units, units
     ]
 
     self.state_size = [
-                       tf.TensorShape(constants['Y_DIM']),
-                       lstm_state_sizes,
-                       tf.TensorShape(constants['MAX_CHORALE_LENGTH']),
-                       tf.TensorShape((constants['MAX_CHORALE_LENGTH'], units))]
+        tf.TensorShape(constants['Y_DIM']),
+        lstm_state_sizes,
+        tf.TensorShape(constants['MAX_CHORALE_LENGTH']),
+        tf.TensorShape((constants['MAX_CHORALE_LENGTH'], units))]
     self.output_size = units
 
   def call(self, inputs, states):
     dense_in, lstm_states, attention_energies_in, encoder_out = states
-    
-    inputs_and_dense = self.lstm_input_concat_cell([inputs, dense_in, attention_energies_in])
-    dense_and_dense =  self.lstm_input_concat_cell([dense_in, dense_in, attention_energies_in])
+
+    inputs_and_dense = self.lstm_input_concat_cell(
+        [inputs, dense_in, attention_energies_in])
+    dense_and_dense = self.lstm_input_concat_cell(
+        [dense_in, dense_in, attention_energies_in])
 
     lstm_input = tf.cond(tf.random.uniform(shape=(), minval=0, maxval=1) < self.teacher_forcing_prob,
                          true_fn=lambda: inputs_and_dense,
                          false_fn=lambda: dense_and_dense)
 
     lstm_in_state_h_1, lstm_in_state_h_2, lstm_in_state_h_3, lstm_in_state_c_1, lstm_in_state_c_2, lstm_in_state_c_3 = lstm_states
-    lstm_out_1, [lstm_out_state_h_1, lstm_out_state_c_1] = self.lstm_cell_1(lstm_input, [lstm_in_state_h_1, lstm_in_state_c_1])
-    lstm_out_2, [lstm_out_state_h_2, lstm_out_state_c_2] = self.lstm_cell_2(lstm_out_1, [lstm_in_state_h_2, lstm_in_state_c_2])
-    lstm_out, [lstm_out_state_h_3, lstm_out_state_c_3] = self.lstm_cell_3(lstm_out_2, [lstm_in_state_h_3, lstm_in_state_c_3])
+    lstm_out_1, [lstm_out_state_h_1, lstm_out_state_c_1] = self.lstm_cell_1(
+        lstm_input, [lstm_in_state_h_1, lstm_in_state_c_1])
+    lstm_out_2, [lstm_out_state_h_2, lstm_out_state_c_2] = self.lstm_cell_2(
+        lstm_out_1, [lstm_in_state_h_2, lstm_in_state_c_2])
+    lstm_out, [lstm_out_state_h_3, lstm_out_state_c_3] = self.lstm_cell_3(
+        lstm_out_2, [lstm_in_state_h_3, lstm_in_state_c_3])
     lstm_out_states = [
         lstm_out_state_h_1,
         lstm_out_state_h_2,
@@ -193,7 +208,8 @@ class DecoderLayer(Layer):
         lstm_out_state_c_3,
     ]
 
-    attention_context_out, attention_energies_out = self.attn_cell([encoder_out, lstm_out])
+    attention_context_out, attention_energies_out = self.attn_cell(
+        [encoder_out, lstm_out])
     attention_context_out = attention_context_out[0]
     attention_energies_out = attention_energies_out[0]
     concat_out = self.attn_concat_cell([attention_context_out, lstm_out])
@@ -216,7 +232,4 @@ class DecoderLayer(Layer):
   @classmethod
   def from_config(cls, config):
       return cls(units=config['units'], constants=config['constants'], teacher_forcing_prob=config['teacher_forcing_prob'], config=config)
-<<<<<<< Updated upstream
 
-=======
->>>>>>> Stashed changes
