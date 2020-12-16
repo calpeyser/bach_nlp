@@ -17,4 +17,4 @@ python code/bidir_enc_dec.py pred 32 1200 0.75 attn.npy
 
 This will generate an npy file with the attention maps called `attn.npy`
 
-Then use `code/plot_attention.py` to plot the attention map.
+Use `code/plot_attention.py` to plot the attention map.
